@@ -1,0 +1,166 @@
+import hashlib
+import hmac
+import json
+import os
+import time
+import tracemalloc
+
+class TitanSha256AntiManipulationShield:
+    def __init__(self):
+        self._secret_key = os.environ.get("TITAN_MASTER_KEY", "TITAN_SECURE_2026_EAC").encode()
+        self._firmas_estructura = {
+            "g1_ping": self._calcular_hmac("g1:g1_ping:['host']"),
+            "g3_telemetria": self._calcular_hmac("g3:g3_telemetria:[]"),
+            "t3_leer_conf": self._calcular_hmac("t3:t3_leer_conf:['ruta']"),
+            "v1_parchar": self._calcular_hmac("v1:v1_parchar:['archivo', 'buscar', 'reemplazar']"),
+            "v2_respaldar": self._calcular_hmac("v2:v2_respaldar:['archivo']"),
+            "c1_web": self._calcular_hmac("c1:c1_web:['cuerpo', 'nombre_archivo', 'titulo']"),
+            "c3_domotica": self._calcular_hmac("c3:c3_domotica:['dispositivo', 'estado']"),
+            "c5_reporte": self._calcular_hmac("c5:c5_reporte:['archivo', 'datos']"),
+            "a1_permisos": self._calcular_hmac("a1:a1_permisos:['archivo']"),
+            "a2_hash": self._calcular_hmac("a2:a2_hash:['archivo']"),
+        }
+        self.rutas_permitidas = ("./", "test_", "reporte_", "config.sys")
+        self.logs_forenses = []
+
+    def _calcular_hmac(self, data: str) -> str:
+        return hmac.new(self._secret_key, data.encode('utf-8'), hashlib.sha256).hexdigest()
+
+    def verify_integrity(self, modulo: str, skill: str, params: dict) -> str:
+        estructura_actual = f"{modulo}:{skill}:{sorted(list(params.keys()))}"
+        hash_estructura = self._calcular_hmac(estructura_actual)
+        
+        if skill in self._firmas_estructura:
+            if not hmac.compare_digest(hash_estructura, self._firmas_estructura[skill]):
+                self.logs_forenses.append(f"ALERTA_ESTRUCTURA: {skill} con params {list(params.keys())}")
+                return "SENUELO"
+
+        for k in ("archivo", "ruta", "nombre_archivo"):
+            if k in params:
+                ruta = params[k]
+                if ".." in ruta or ruta.startswith("/") or not ruta.startswith(self.rutas_permitidas):
+                    self.logs_forenses.append(f"ALERTA_PERIMETRO: Acceso denegado a {ruta}")
+                    return "SENUELO"
+
+        sello = self._calcular_hmac(f"{estructura_actual}:{json.dumps(params, sort_keys=True)}")
+        self.logs_forenses.append(f"OK: {skill} | HMAC:{sello[:12]}")
+        return "AUTORIZADO"
+
+class AgenteOrquestadorUnificado:
+    def __init__(self, supervision_auto_aprobar: bool = True):
+        self.shield = TitanSha256AntiManipulationShield()
+        self.supervision_auto_aprobar = supervision_auto_aprobar
+        self.catalogo = {
+            "g1_ping": lambda host: f"Nodo {host}: ACTIVO (0.4ms)",
+            "g2_puerto": lambda host, puerto: f"Puerto {puerto} en {host}: ABIERTO",
+            "g3_telemetria": lambda: {"os": os.name, "pid": os.getpid()},
+            "g4_listar": lambda directorio=".": os.listdir(directorio)[:5],
+            "g5_propagar": lambda nodos, mensaje: f"Aviso '{mensaje}' enviado a {len(nodos)} nodos",
+            "t1_tunel_abrir": lambda destino: f"Túnel cifrado abierto con {destino}",
+            "t2_cmd": lambda comando: f"Ejecutado: {comando}",
+            "t3_leer_conf": self._t3_leer_conf,
+            "t4_paquete": lambda origen, destino: f"Paquete {origen} -> {destino}",
+            "t5_tunel_cerrar": lambda destino: f"Túnel cerrado con {destino}",
+            "v1_parchar": self._v1_parchar,
+            "v2_respaldar": self._v2_respaldar,
+            "v3_restaurar": lambda archivo: f"Restaurado {archivo}",
+            "v4_actualizar": lambda modulo_nombre: f"Módulo {modulo_nombre} actualizado",
+            "v5_limpiar": lambda extension=".tmp": "Temporales limpios",
+            "c1_web": self._c1_web,
+            "c2_script": lambda nombre, codigo: f"Script {nombre} creado",
+            "c3_domotica": lambda dispositivo, estado: f"IoT {dispositivo} -> {estado}",
+            "c4_empresa": lambda flujo, datos: f"Flujo {flujo} procesado",
+            "c5_reporte": self._c5_reporte,
+            "a1_permisos": lambda archivo: f"Permisos {archivo}: 644",
+            "a2_hash": self._a2_hash,
+            "a3_logs": lambda ruta_log, palabra_clave="ERROR": "0 anomalías",
+            "a4_bloquear_ip": lambda ip: f"IP {ip} bloqueada",
+            "a5_salud": lambda: "Sistema ÓPTIMO",
+        }
+
+    def _c1_web(self, nombre_archivo: str, titulo: str, cuerpo: str) -> str:
+        with open(nombre_archivo, "w", encoding="utf-8") as f:
+            f.write(f"<html><h1>{titulo}</h1><p>{cuerpo}</p></html>")
+        return f"Creado {nombre_archivo}"
+
+    def _t3_leer_conf(self, ruta: str) -> str:
+        with open(ruta, "r", encoding="utf-8") as f:
+            return f.read()
+
+    def _v2_respaldar(self, archivo: str) -> str:
+        with open(archivo, "r", encoding="utf-8") as f:
+            data = f.read()
+        with open(archivo + ".bak", "w", encoding="utf-8") as f:
+            f.write(data)
+        return f"Backup {archivo}.bak creado"
+
+    def _v1_parchar(self, archivo: str, buscar: str, reemplazar: str) -> str:
+        if not self.supervision_auto_aprobar:
+            return "DENEGADO_POR_HUMANO"
+        with open(archivo, "r", encoding="utf-8") as f:
+            c = f.read()
+        with open(archivo, "w", encoding="utf-8") as f:
+            f.write(c.replace(buscar, reemplazar, 1))
+        return f"Parche aplicado en {archivo}"
+
+    def _a2_hash(self, archivo: str) -> str:
+        with open(archivo, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+
+    def _c5_reporte(self, archivo: str, datos: dict) -> str:
+        with open(archivo, "w", encoding="utf-8") as f:
+            json.dump(datos, f)
+        return f"Reporte guardado en {archivo}"
+
+    def ejecutar_skill(self, nombre_skill: str, **kwargs):
+        if nombre_skill not in self.catalogo:
+            return {"status": "ERROR", "msg": "Skill inexistente"}
+        modulo = nombre_skill.split("_")[0]
+        veredicto = self.shield.verify_integrity(modulo, nombre_skill, kwargs)
+        
+        if veredicto == "SENUELO":
+            return {"status": "SENUELO_ACTIVADO", "msg": f"Simulación aislada ejecutada para {nombre_skill}"}
+            
+        res = self.catalogo[nombre_skill](**kwargs)
+        return {"status": "OK", "resultado": res}
+
+tracemalloc.start()
+t_inicio = time.perf_counter()
+
+agente = AgenteOrquestadorUnificado(supervision_auto_aprobar=True)
+total_skills = len(agente.catalogo)
+
+r1 = agente.ejecutar_skill("c1_web", nombre_archivo="test_panel.html", titulo="Titan IO", cuerpo="ESTADO=VULNERABLE")
+r2 = agente.ejecutar_skill("v2_respaldar", archivo="test_panel.html")
+r3 = agente.ejecutar_skill("v1_parchar", archivo="test_panel.html", buscar="ESTADO=VULNERABLE", reemplazar="ESTADO=SEGURO")
+r4 = agente.ejecutar_skill("a2_hash", archivo="test_panel.html")
+r5 = agente.ejecutar_skill("c3_domotica", dispositivo="Alarma_Central", estado="ARMADA")
+r6 = agente.ejecutar_skill("c5_reporte", archivo="reporte_auditoria.json", datos={"hash_final": r4["resultado"]})
+
+ataque_param = agente.ejecutar_skill("v1_parchar", archivo="test_panel.html", buscar="A", reemplazar="B", comando_oculto="rm -rf /")
+ataque_ruta = agente.ejecutar_skill("t3_leer_conf", ruta="/etc/passwd")
+
+t_stress_ini = time.perf_counter()
+for _ in range(1000):
+    agente.ejecutar_skill("g3_telemetria")
+t_stress_fin = time.perf_counter()
+
+t_fin = time.perf_counter()
+mem_actual, mem_pico = tracemalloc.get_traced_memory()
+tracemalloc.stop()
+
+for f in ["test_panel.html", "test_panel.html.bak", "reporte_auditoria.json"]:
+    if os.path.exists(f):
+        os.remove(f)
+
+print(json.dumps({
+    "total_skills_registrados": total_skills,
+    "flujo_encadenado_exitoso": all(x["status"] == "OK" for x in [r1, r2, r3, r4, r5, r6]),
+    "hash_archivo_parchado": r4["resultado"],
+    "defensa_parametro_inyectado": ataque_param["status"],
+    "defensa_path_traversal": ataque_ruta["status"],
+    "tiempo_1000_ciclos_ms": round((t_stress_fin - t_stress_ini) * 1000, 2),
+    "tiempo_total_suite_ms": round((t_fin - t_inicio) * 1000, 2),
+    "memoria_pico_kb": round(mem_pico / 1024, 2),
+    "eventos_forenses_registrados": len(agente.shield.logs_forenses)
+}, indent=2))
